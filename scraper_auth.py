@@ -4,7 +4,7 @@ import asyncio
 
 async def save_auth():
     async with async_playwright() as p:
-        # Note: Using 'chrome' channel is good for avoiding bot detection
+        # 'chrome' channel is good for avoiding bot detection
         browser = await p.chromium.launch(headless=False, channel="chrome")
         context = await browser.new_context()
         page = await context.new_page()

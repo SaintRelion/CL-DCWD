@@ -9,12 +9,13 @@ from tkinter import ttk
 from ui.utils import center_window
 from ui.tabs.map_tab import MapTab
 
-# from ui.tabs.predictive_tab import PredictiveTab
+from ui.tabs.predictive_tab import PredictiveTab
 from ui.tabs.notifications_tab import NotificationsTab
 from scraper.scraper_agent import run_agent
 
 from nlp_processor import NLPProcessor
 from location_validator import LocationValidator
+
 from predictive_model import PredictiveModel
 
 
@@ -54,7 +55,7 @@ class App:
         self.tabs.pack(fill="both", expand=True)
 
         # Notifications Tab
-        if role in ["operator", "manager"]:
+        if role == "operator":
             self.notifications_tab = NotificationsTab(
                 self.tabs, self.nlp, self.lv, self.email, self.role
             )
@@ -65,13 +66,14 @@ class App:
             # ).start()
 
         # Map Tab
-        self.map_tab = MapTab(self.tabs, self.email, self.role)
-        self.tabs.add(self.map_tab.frame, text="Map View")
+        if role in ["tubero", "manager"]:
+            self.map_tab = MapTab(self.tabs, self.email, self.role)
+            self.tabs.add(self.map_tab.frame, text="Map View")
 
         # Predictive Tab
-        # if role == "manager":
-        #     self.predict_tab = PredictiveTab(self.tabs, self.pm)
-        #     self.tabs.add(self.predict_tab.frame, text="Predictive Model")
+        if role == "manager":
+            self.predict_tab = PredictiveTab(self.tabs, self.pm)
+            self.tabs.add(self.predict_tab.frame, text="Predictive Model")
 
         self.tabs.bind("<<NotebookTabChanged>>", self.on_tab_change)
 

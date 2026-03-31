@@ -1,51 +1,60 @@
 import os
 import pandas as pd
 import joblib
+from datetime import datetime
 
+# Path Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "..", "models")
-model_path = os.path.join(MODEL_DIR, "rf_incident_model.pkl")
-features_path = os.path.join(MODEL_DIR, "feature_columns.pkl")
 
 
 class PredictiveModel:
     def initModel(self):
-        self.rf = joblib.load(model_path)
-        self.feature_columns = joblib.load(features_path)
+        """Loads the Neural Network, Scaler, and Feature list."""
+        try:
+            self.model = joblib.load(os.path.join(MODEL_DIR, "nn_incident_model.pkl"))
+            self.scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
+            self.feature_columns = joblib.load(
+                os.path.join(MODEL_DIR, "feature_columns.pkl")
+            )
+            print("[PREDICTIVE] Neural Network and Scaler loaded successfully.")
+        except Exception as e:
+            print(f"[ERROR] Failed to load model files: {e}")
 
-    def predictIncidentProbability(
-        self, category, location_id, timestamp, past_7d=0, past_30d=0
-    ):
-        # category_id = None
-        # for c_id, categories in category_dict.items():
-        #     if category.lower() in categories:
-        #         category_id = c_id
-        #         break
-        # if category_id is None:
-        #     raise ValueError(f"Category '{category}' not found in category_dict")
+    def get_daily_risk_report(self, location_id, rainfall, past_7d):
+        """
+        Calculates the probability spread for a specific location.
+        Returns: A sorted dictionary of {category_id: probability_percentage}
+        """
+        now = datetime.now()
 
-        # ts = pd.to_datetime(timestamp)
-        # day_of_week = ts.dayofweek
-        # week = ts.isocalendar().week
-        # month = ts.month
-        # year = ts.year
+        # Prepare the input matching our 'KOS' features:
+        # ["loc_id", "day_of_week", "month", "rainfall", "past_7d"]
+        feature_row = pd.DataFrame(
+            [
+                {
+                    "loc_id": location_id,
+                    "day_of_week": now.weekday(),
+                    "month": now.month,
+                    "rainfall": rainfall,
+                    "past_7d": past_7d,
+                }
+            ]
+        )[self.feature_columns]
 
-        # feature_row = {
-        #     "keyword_id": category_id,
-        #     "location_id": location_id,
-        #     "day_of_week": day_of_week,
-        #     "week": week,
-        #     "month": month,
-        #     "year": year,
-        #     "past_7d": past_7d,
-        #     "past_30d": past_30d,
-        # }
+        # 1. Scale the data (Mandatory for Neural Networks)
+        X_scaled = self.scaler.transform(feature_row)
 
-        # X = pd.DataFrame([feature_row])[self.feature_columns]
+        # 2. Get Softmax probabilities
+        probs = self.model.predict_proba(X_scaled)[0]
+        classes = self.model.classes_
 
-        # # Predict probability
-        # proba = self.rf.predict_proba(X)[0]
-        # if 1 in self.rf.classes_:
-        #     idx = list(self.rf.classes_).index(1)
-        #     return proba[idx]
-        return 0.0
+        # 3. Build a report of all risks > 0.1%
+        risk_report = {}
+        for idx, class_id in enumerate(classes):
+            percentage = probs[idx] * 100
+            if percentage > 0.1:
+                risk_report[int(class_id)] = round(percentage, 2)
+
+        # Sort by highest risk first
+        return dict(sorted(risk_report.items(), key=lambda item: item[1], reverse=True))

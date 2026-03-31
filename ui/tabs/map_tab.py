@@ -1,3 +1,4 @@
+from datetime import datetime
 import tkinter as tk
 from tkintermapview import TkinterMapView
 
@@ -178,7 +179,7 @@ class MapTab:
         category_sel = self.category_filter.get()
         condition_sel = self.condition_filter.get()
 
-        # 2. Fetch data from DB (Filtering happens at the SQL level now)
+        # 2. Fetch data from DB
         incidents = get_incident_reports(
             limit=limit_val,
             status=status_sel,
@@ -186,16 +187,13 @@ class MapTab:
             condition=condition_sel,
         )
 
-        # 3. State Change Detection
-        # Tracks (ID, Status) to see if we actually need to redraw the UI
-        current_state = set((row[0], row[3], row[8]) for row in incidents)
-
+        # 3. State Change Detection (Simplified for KOS)
+        current_state = set((row[0], row[8], row[7]) for row in incidents)
         if hasattr(self, "last_state") and self.last_state == current_state:
-            # No data changes, just reschedule the next check
-            self._refresh_id = self.frame.after(15000, self.refresh)
+            # Check every 60s if no data change to update the "ago" text
+            self._refresh_id = self.frame.after(60000, self.refresh)
             return
 
-        # Data has changed or filters were updated; proceed with UI update
         self.last_state = current_state
 
         # 4. Clear existing UI elements
@@ -205,92 +203,118 @@ class MapTab:
         self.map_widget.delete_all_marker()
         self.markers.clear()
 
-        # 5. Build the UI rows and Map markers
+        # 5. Build the UI
         for row in incidents:
             (id, post_id, cat_id, loc_id, lat, lon, ts, cond, stat, cat_name) = row
 
-            # Resolve Location Text
+            # --- TIME CALCULATIONS ---
+            now = datetime.now()
+            diff = now - ts
+            days, hours = diff.days, diff.seconds // 3600
+            minutes = (diff.seconds % 3600) // 60
+
+            time_ago = (
+                f"{days}d {hours}h ago"
+                if days > 0
+                else (f"{hours}h {minutes}m ago" if hours > 0 else f"{minutes}m ago")
+            )
+
+            # --- COLOR LOGIC FOR "AGO" ---
+            # Gray (< 1h) -> Orange (1h-24h) -> Red (> 24h)
+            ago_color = "#7f8c8d"  # Default Gray
+            is_past_due = False
+
+            if days >= 1:
+                ago_color = "#e74c3c"  # Red (Critical)
+                is_past_due = stat == "Pending"
+            elif hours >= 1:
+                ago_color = "#e67e22"  # Orange (Warning)
+
+            # --- UI STYLING ---
             location = location_dict.get(loc_id)
             location_text = (
                 f"{location['street']}, {location['barangay']}"
                 if location
-                else "Unknown Location"
+                else "Unknown"
             )
 
-            # Determine marker and label colors
+            base_color = "#3498db"  # Default Blue
             if stat == "Pending":
-                color = "#f39c12"  # Orange
-            elif stat == "Handled":
-                color = "#2ecc71"  # Green
-            else:
-                color = "#3498db"  # Blue (Default/Under Evaluation)
+                base_color = "#f39c12"
+            if stat == "Handled":
+                base_color = "#2ecc71"
+            if cond == "High Priority" or is_past_due:
+                base_color = "#c0392b"  # Deep Red
 
-            if cond == "High Priority":
-                color = "#e74c3c"  # Red overrides for priority
-
-            # --- MAP MARKER ---
-            marker_label = f"{cat_name.replace('_', ' ').title()}\n📍 {location_text}"
-            marker = self.map_widget.set_marker(
-                lat, lon, text=marker_label, marker_color_circle=color
-            )
-            self.markers[id] = marker
-
-            # --- INCIDENT CARD (UI ROW) ---
+            # --- RENDER CARD ---
             row_frame = tk.Frame(
-                self.incident_panel, bd=1, relief="solid", padx=5, pady=5
+                self.incident_panel,
+                bd=1,
+                relief="solid",
+                padx=10,
+                pady=10,
+                bg="#ffffff",
             )
-            row_frame.pack(fill="x", expand=True, padx=3, pady=3)
+            row_frame.pack(fill="x", padx=5, pady=4)
 
-            text_frame = tk.Frame(row_frame)
+            text_frame = tk.Frame(row_frame, bg="#ffffff")
             text_frame.pack(side="left", fill="x", expand=True)
 
-            # Category Label
-            tk.Label(
-                text_frame, text=cat_name.upper(), font=("Arial", 10, "bold")
-            ).pack(anchor="w", padx=5)
-
-            # Location Label
+            # Category & Priority Tag
+            title = f"{cat_name.upper()}" + (" [CRITICAL]" if is_past_due else "")
             tk.Label(
                 text_frame,
-                text=f"📍 {location_text}",
-                font=("Arial", 8),
-                wraplength=110,
-            ).pack(anchor="w", padx=5)
+                text=title,
+                font=("Arial", 11, "bold"),
+                fg=base_color,
+                bg="#ffffff",
+            ).pack(anchor="w")
 
-            # Status Label
-            tk.Label(text_frame, text=stat, fg=color, font=("Arial", 8, "bold")).pack(
-                anchor="w", padx=5
+            # Location
+            tk.Label(
+                text_frame, text=f"📍 {location_text}", font=("Arial", 9), bg="#ffffff"
+            ).pack(anchor="w")
+
+            # The Visible "AGO" Label (The Focus)
+            tk.Label(
+                text_frame,
+                text=f"⏱ {time_ago.upper()}",
+                font=("Verdana", 9, "bold"),
+                fg=ago_color,
+                bg="#ffffff",
+            ).pack(anchor="w", pady=(2, 0))
+
+            # --- MAP MARKER ---
+            self.markers[id] = self.map_widget.set_marker(
+                lat, lon, text=f"{cat_name}\n{time_ago}", marker_color_circle=base_color
             )
 
-            # Click Event: Focus map on this incident
-            focus_map = lambda e, lt=lat, ln=lon: self.map_widget.set_position(lt, ln)
-            row_frame.bind("<Button-1>", focus_map)
-            text_frame.bind("<Button-1>", focus_map)
-
-            # --- ACTION BUTTONS ---
+            # --- ACTION BUTTON (TUBERO ONLY) ---
             if self.role == "tubero":
-                btn_frame = tk.Frame(row_frame)
-                btn_frame.pack(side="right", fill="y")
+                btn_frame = tk.Frame(row_frame, bg="#ffffff")
+                btn_frame.pack(side="right", padx=5)
 
                 def open_update(pid=post_id, cur_stat=stat):
                     popup = tk.Toplevel(self.frame)
                     popup.title("Update Status")
                     popup.geometry("250x120")
-
-                    tk.Label(popup, text="Select Status:").pack(pady=(10, 5))
+                    tk.Label(popup, text="Select Status:").pack(pady=10)
                     status_var = tk.StringVar(value=cur_stat)
-                    tk.OptionMenu(popup, status_var, "Pending", "Handled").pack(
-                        pady=(0, 10)
-                    )
+                    tk.OptionMenu(popup, status_var, "Pending", "Handled").pack(pady=5)
 
                     def save():
                         update_incident_tubero(pid, status_var.get())
                         popup.destroy()
-                        self.refresh()  # Trigger immediate refresh after DB update
+                        self.refresh()
 
                     tk.Button(
-                        popup, text="Save", command=save, bg="#2ecc71", fg="white"
-                    ).pack()
+                        popup,
+                        text="Save",
+                        command=save,
+                        bg="#2ecc71",
+                        fg="white",
+                        padx=10,
+                    ).pack(pady=10)
 
                 tk.Button(
                     btn_frame,
@@ -298,8 +322,15 @@ class MapTab:
                     command=open_update,
                     bg="#3498db",
                     fg="white",
-                    padx=8,
+                    padx=12,
+                    font=("Arial", 9, "bold"),
                 ).pack()
 
-        # 6. Reschedule the refresh
-        self._refresh_id = self.frame.after(15000, self.refresh)
+            # Interaction: Click row to focus map
+            row_frame.bind(
+                "<Button-1>",
+                lambda e, lt=lat, ln=lon: self.map_widget.set_position(lt, ln),
+            )
+
+        # 6. Reschedule
+        self._refresh_id = self.frame.after(30000, self.refresh)
