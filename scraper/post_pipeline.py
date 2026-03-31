@@ -28,6 +28,7 @@ def process_post(raw_text: str):
     insert_post(
         post=raw_text,
         intent=intent,
+        score=confidence,
         status=status,
         location_row=location_row,
     )
