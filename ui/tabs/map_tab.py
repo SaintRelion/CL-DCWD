@@ -154,183 +154,259 @@ class MapTab:
         if new_lat != lat or new_lon != lon:
             self.map_widget.set_position(new_lat, new_lon)
 
-    def focus_incident(self, event):
-        selection = self.incident_list.curselection()
-        if not selection:
-            return
-
-        index = selection[0]
-        incident_id = self.list_ids[index]
+    def focus_incident(self, event) -> None:
+        if hasattr(event.widget, "curselection"):
+            selection = self.incident_list.curselection()
+            if not selection:
+                return
+            index = selection[0]
+            incident_id = self.list_ids[index]
+        else:
+            # If called from a direct card click, incident_id is passed via lambda
+            incident_id = event
 
         marker = self.markers.get(incident_id)
 
         if marker:
             lat, lon = marker.position
-            self.map_widget.set_position(lat, lon)
-            self.map_widget.set_zoom(15)
 
-    def refresh(self):
+            # 1. Move to position
+            self.map_widget.set_position(lat, lon)
+
+            # 2. "Zoom-In" Animation sequence
+            def animate_zoom(step: int) -> None:
+                if step == 1:
+                    self.map_widget.set_zoom(14)
+                    self.frame.after(100, lambda: animate_zoom(2))
+                elif step == 2:
+                    self.map_widget.set_zoom(16)
+                    self.frame.after(100, lambda: animate_zoom(3))
+                elif step == 3:
+                    self.map_widget.set_zoom(15)  # Final Zoom
+
+            animate_zoom(1)
+
+    def refresh(self) -> None:
         if hasattr(self, "_refresh_id"):
             self.frame.after_cancel(self._refresh_id)
 
-        # 1. Capture current filter states
-        limit_val = self.limit_var.get()
-        status_sel = self.status_filter.get()
-        category_sel = self.category_filter.get()
-        condition_sel = self.condition_filter.get()
+        # 1. Fetch Data
+        limit_val: int = self.limit_var.get()
+        status_sel: str = self.status_filter.get()
+        category_sel: str = self.category_filter.get()
+        condition_sel: str = self.condition_filter.get()
 
-        # 2. Fetch data from DB
-        incidents = get_incident_reports(
+        incidents: list = get_incident_reports(
             limit=limit_val,
             status=status_sel,
             category=category_sel,
             condition=condition_sel,
         )
 
-        # 3. State Change Detection (Simplified for KOS)
-        current_state = set((row[0], row[8], row[7]) for row in incidents)
+        # 2. State Change Detection
+        current_state: set = set((row[0], row[8], row[7]) for row in incidents)
         if hasattr(self, "last_state") and self.last_state == current_state:
-            # Check every 60s if no data change to update the "ago" text
             self._refresh_id = self.frame.after(60000, self.refresh)
             return
-
         self.last_state = current_state
 
-        # 4. Clear existing UI elements
+        # 3. Cleanup
         for widget in self.incident_panel.winfo_children():
             widget.destroy()
-
         self.map_widget.delete_all_marker()
         self.markers.clear()
 
-        # 5. Build the UI
+        # 4. Build UI Cards
         for row in incidents:
             (id, post_id, cat_id, loc_id, lat, lon, ts, cond, stat, cat_name) = row
 
-            # --- TIME CALCULATIONS ---
-            now = datetime.now()
+            # --- TIME & STYLE LOGIC ---
+            now: datetime = datetime.now()
             diff = now - ts
-            days, hours = diff.days, diff.seconds // 3600
-            minutes = (diff.seconds % 3600) // 60
+            is_past_due: bool = diff.days >= 1 and stat == "Pending"
 
-            time_ago = (
-                f"{days}d {hours}h ago"
-                if days > 0
-                else (f"{hours}h {minutes}m ago" if hours > 0 else f"{minutes}m ago")
+            # Theme Colors: fg = Circle Center, bg = Badge Background
+            styles: dict = {
+                "Pending": {
+                    "fg": "#f39c12",
+                    "bg": "#FFF4E5",
+                    "border": "#FFE7BA",
+                    "sym": "⏳",
+                },
+                "Handled": {
+                    "fg": "#27ae60",
+                    "bg": "#F6FFED",
+                    "border": "#B7EB8F",
+                    "sym": "✅",
+                },
+                "Critical": {
+                    "fg": "#e74c3c",
+                    "bg": "#FFF1F0",
+                    "border": "#FFA39E",
+                    "sym": "🚨",
+                },
+            }
+            theme = (
+                styles["Critical"]
+                if is_past_due
+                else styles.get(stat, styles["Pending"])
             )
 
-            # --- COLOR LOGIC FOR "AGO" ---
-            # Gray (< 1h) -> Orange (1h-24h) -> Red (> 24h)
-            ago_color = "#7f8c8d"  # Default Gray
-            is_past_due = False
-
-            if days >= 1:
-                ago_color = "#e74c3c"  # Red (Critical)
-                is_past_due = stat == "Pending"
-            elif hours >= 1:
-                ago_color = "#e67e22"  # Orange (Warning)
-
-            # --- UI STYLING ---
-            location = location_dict.get(loc_id)
-            location_text = (
-                f"{location['street']}, {location['barangay']}"
-                if location
-                else "Unknown"
-            )
-
-            base_color = "#3498db"  # Default Blue
-            if stat == "Pending":
-                base_color = "#f39c12"
-            if stat == "Handled":
-                base_color = "#2ecc71"
-            if cond == "High Priority" or is_past_due:
-                base_color = "#c0392b"  # Deep Red
-
-            # --- RENDER CARD ---
-            row_frame = tk.Frame(
+            # --- CARD CONSTRUCTION ---
+            card = tk.Frame(
                 self.incident_panel,
-                bd=1,
-                relief="solid",
-                padx=10,
-                pady=10,
-                bg="#ffffff",
+                bg="white",
+                highlightthickness=1,
+                highlightbackground=theme["border"],
+                cursor="hand2",
             )
-            row_frame.pack(fill="x", padx=5, pady=4)
+            card.pack(fill="x", padx=10, pady=5)
 
-            text_frame = tk.Frame(row_frame, bg="#ffffff")
-            text_frame.pack(side="left", fill="x", expand=True)
+            # Left side color accent
+            accent = tk.Frame(card, bg=theme["fg"], width=5)
+            accent.pack(side="left", fill="y")
 
-            # Category & Priority Tag
-            title = f"{cat_name.upper()}" + (" [CRITICAL]" if is_past_due else "")
-            tk.Label(
-                text_frame,
-                text=title,
-                font=("Arial", 11, "bold"),
-                fg=base_color,
-                bg="#ffffff",
-            ).pack(anchor="w")
+            # Info container (Center)
+            info_frame = tk.Frame(card, bg="white", padx=10, pady=10)
+            info_frame.pack(side="left", fill="both", expand=True)
 
-            # Location
-            tk.Label(
-                text_frame, text=f"📍 {location_text}", font=("Arial", 9), bg="#ffffff"
-            ).pack(anchor="w")
-
-            # The Visible "AGO" Label (The Focus)
-            tk.Label(
-                text_frame,
-                text=f"⏱ {time_ago.upper()}",
-                font=("Verdana", 9, "bold"),
-                fg=ago_color,
-                bg="#ffffff",
-            ).pack(anchor="w", pady=(2, 0))
-
-            # --- MAP MARKER ---
-            self.markers[id] = self.map_widget.set_marker(
-                lat, lon, text=f"{cat_name}\n{time_ago}", marker_color_circle=base_color
+            lbl_title = tk.Label(
+                info_frame,
+                text=cat_name.upper(),
+                font=("Arial", 10, "bold"),
+                bg="white",
+                fg="#2c3e50",
             )
+            lbl_title.pack(anchor="w")
 
-            # --- ACTION BUTTON (TUBERO ONLY) ---
+            loc_data = location_dict.get(loc_id, {"street": "Unknown Location"})
+            lbl_loc = tk.Label(
+                info_frame,
+                text=f"📍 {loc_data['street']}",
+                font=("Arial", 9),
+                bg="white",
+                fg="#7f8c8d",
+            )
+            lbl_loc.pack(anchor="w")
+
+            time_str = (
+                f"{diff.days}d ago" if diff.days > 0 else f"{diff.seconds//3600}h ago"
+            )
+            badge_frame = tk.Frame(info_frame, bg=theme["bg"], padx=6, pady=2)
+            badge_frame.pack(anchor="w", pady=(5, 0))
+            lbl_badge = tk.Label(
+                badge_frame,
+                text=f"{theme['sym']} {stat.upper()} • {time_str}",
+                font=("Consolas", 8, "bold"),
+                fg=theme["fg"],
+                bg=theme["bg"],
+            )
+            lbl_badge.pack()
+
+            # --- ACTION BUTTON (Fixed & Robust) ---
             if self.role == "tubero":
-                btn_frame = tk.Frame(row_frame, bg="#ffffff")
-                btn_frame.pack(side="right", padx=5)
-
-                def open_update(pid=post_id, cur_stat=stat):
-                    popup = tk.Toplevel(self.frame)
-                    popup.title("Update Status")
-                    popup.geometry("250x120")
-                    tk.Label(popup, text="Select Status:").pack(pady=10)
-                    status_var = tk.StringVar(value=cur_stat)
-                    tk.OptionMenu(popup, status_var, "Pending", "Handled").pack(pady=5)
-
-                    def save():
-                        update_incident_tubero(pid, status_var.get())
-                        popup.destroy()
-                        self.refresh()
-
-                    tk.Button(
-                        popup,
-                        text="Save",
-                        command=save,
-                        bg="#2ecc71",
-                        fg="white",
-                        padx=10,
-                    ).pack(pady=10)
+                btn_container = tk.Frame(card, bg="white", width=100)
+                btn_container.pack(side="right", fill="y", padx=10)
+                btn_container.pack_propagate(False)
 
                 tk.Button(
-                    btn_frame,
-                    text="Update",
-                    command=open_update,
+                    btn_container,
+                    text="UPDATE",
+                    font=("Arial", 9, "bold"),
                     bg="#3498db",
                     fg="white",
-                    padx=12,
-                    font=("Arial", 9, "bold"),
-                ).pack()
+                    relief="flat",
+                    activebackground="#2980b9",
+                    cursor="hand2",
+                    command=lambda p=post_id, s=stat: self.open_update_popup(p, s),
+                ).pack(expand=True, fill="both", pady=12)
 
-            # Interaction: Click row to focus map
-            row_frame.bind(
-                "<Button-1>",
-                lambda e, lt=lat, ln=lon: self.map_widget.set_position(lt, ln),
+            # --- CLICK INTERACTION (Visual Flash Animation) ---
+            def handle_click(e, lt=lat, ln=lon, c=card, b=theme["border"]):
+                # 1. Map Interaction (Direct positioning, no zoom bounce)
+                self.map_widget.set_position(lt, ln)
+
+                # 2. Visual "Flash" Animation on the UI Card
+                # Briefly change background and border to blue highlight
+                c.config(
+                    highlightbackground="#3498db", highlightthickness=2, bg="#ebf5fb"
+                )
+                info_frame.config(bg="#ebf5fb")
+                lbl_title.config(bg="#ebf5fb")
+                lbl_loc.config(bg="#ebf5fb")
+
+                def reset_style():
+                    c.config(highlightbackground=b, highlightthickness=1, bg="white")
+                    info_frame.config(bg="white")
+                    lbl_title.config(bg="white")
+                    lbl_loc.config(bg="white")
+
+                self.frame.after(250, reset_style)
+
+            # Bind click to every element to prevent "blocked" clicks
+            for w in [
+                card,
+                info_frame,
+                lbl_title,
+                lbl_loc,
+                badge_frame,
+                lbl_badge,
+                accent,
+            ]:
+                w.bind("<Button-1>", handle_click)
+
+            # --- MAP MARKER (Blackish Outside) ---
+            self.markers[id] = self.map_widget.set_marker(
+                lat,
+                lon,
+                text=f"{theme['sym']} {cat_name}",
+                marker_color_circle=theme["fg"],
+                marker_color_outside="#2c3e50",  # Modern blackish-blue ring
+                text_color="#2c3e50",
             )
 
-        # 6. Reschedule
         self._refresh_id = self.frame.after(30000, self.refresh)
+
+    def open_update_popup(self, post_id: int, current_stat: str) -> None:
+        """Full Modal for Updating Incident Status"""
+        popup = tk.Toplevel(self.frame)
+        popup.title("Update Status")
+        popup.geometry("320x200")
+        popup.configure(bg="white")
+        popup.grab_set()
+
+        # Center logic
+        popup.update_idletasks()
+        x = (popup.winfo_screenwidth() // 2) - 160
+        y = (popup.winfo_screenheight() // 2) - 100
+        popup.geometry(f"+{int(x)}+{int(y)}")
+
+        tk.Label(
+            popup,
+            text="Update Progress",
+            font=("Arial", 11, "bold"),
+            bg="white",
+            pady=15,
+        ).pack()
+
+        status_var = tk.StringVar(value=current_stat)
+        menu = tk.OptionMenu(popup, status_var, "Pending", "Handled")
+        menu.config(width=15, font=("Arial", 10))
+        menu.pack(pady=5)
+
+        def save_and_refresh():
+            update_incident_tubero(post_id, status_var.get())
+            popup.destroy()
+            self.refresh()
+
+        tk.Button(
+            popup,
+            text="SAVE CHANGES",
+            bg="#2ecc71",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            width=18,
+            pady=10,
+            relief="flat",
+            command=save_and_refresh,
+        ).pack(pady=20)
