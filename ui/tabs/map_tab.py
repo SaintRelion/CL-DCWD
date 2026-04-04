@@ -201,6 +201,7 @@ class MapTab:
             status=status_sel,
             category=category_sel,
             condition=condition_sel,
+            show_test_data=False,
         )
 
         # 2. State Change Detection
@@ -369,8 +370,8 @@ class MapTab:
 
     def open_update_popup(self, post_id: int, current_stat: str) -> None:
         """Full Modal for Updating Incident Status"""
-        popup = tk.Toplevel(self.frame)
-        popup.title("Update Status")
+        popup: tk.Toplevel = tk.Toplevel(self.frame)
+        popup.title(f"Update Post #{post_id}")
         popup.geometry("320x200")
         popup.configure(bg="white")
         popup.grab_set()
@@ -395,9 +396,13 @@ class MapTab:
         menu.pack(pady=5)
 
         def save_and_refresh():
-            update_incident_tubero(post_id, status_var.get())
-            popup.destroy()
-            self.refresh()
+            new_status: str = status_var.get()
+            # Only refresh if the database update was successful
+            if update_incident_tubero(post_id, new_status):
+                popup.destroy()
+                self.refresh()  # Ensure this method clears the panel and re-runs the loop
+            else:
+                popup.destroy()
 
         tk.Button(
             popup,

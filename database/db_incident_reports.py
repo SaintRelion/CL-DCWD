@@ -21,7 +21,12 @@ def get_rolling_counts(location_id, reference_time, days=7):
 
 
 def get_incident_reports(
-    limit=15, status="All", category="All", condition="All", offset=0
+    limit=15,
+    status="All",
+    category="All",
+    condition="All",
+    offset=0,
+    show_test_data: bool = True,
 ):
     # Base query with a JOIN to handle filtering by category name
     sql = """
@@ -33,6 +38,9 @@ def get_incident_reports(
     WHERE 1=1
     """
     params = []
+
+    if not show_test_data:
+        sql += " AND ir.post_id != -1"
 
     if status != "All":
         sql += " AND ir.status = %s"
@@ -128,6 +136,12 @@ def update_incident_tubero(post_id, status):
             (status, post_id),
         )
         conn.commit()
-        print(f"[Incident] Updated status for post {post_id}")
+
+        if db_cursor.rowcount > 0:
+            print(f"[Incident] Updated status for post {post_id}")
+            return True
+        else:
+            print(f"[Incident] No record found for post {post_id}")
+            return False
     else:
         print(f"[Incident] Cannot update status: no incident for post {post_id}")
