@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from ui.utils import center_window
-from ui.home import App
 from ui.register import RegisterWindow
 from database.db_users import get_user
 
@@ -45,17 +44,17 @@ class LoginWindow:
         user = get_user(username, password)
 
         if user:
-
             id, username, email, role = user
 
+            # 1. Destroy the login window
             self.root.destroy()
 
-            import tkinter as tk
+            # 2. ✅ LAZY IMPORT: We only import the heavy App now that login is successful!
+            from ui.home import App
 
+            # 3. Launch the dashboard
             main_root = tk.Tk()
-
             App(main_root, username, email, role)
-
             main_root.mainloop()
 
         else:

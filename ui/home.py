@@ -13,10 +13,10 @@ from ui.tabs.predictive_tab import PredictiveTab
 from ui.tabs.notifications_tab import NotificationsTab
 from scraper.scraper_agent import run_agent
 
-from nlp_processor import NLPProcessor
-from location_validator import LocationValidator
+from ai.nlp_processor import NLPProcessor
+from ai.location_validator import LocationValidator
 
-from predictive_model import PredictiveModel
+from ai.predictive_model import PredictiveModel
 
 
 class App:
@@ -48,7 +48,9 @@ class App:
         self.nlp = NLPProcessor()
         self.lv = LocationValidator()
         self.pm = PredictiveModel()
-        self.pm.initModel()
+
+        # FIX: Move heavy ML loading off the main thread to stop initial lag
+        threading.Thread(target=self._load_predictive_models, daemon=True).start()
 
         # Notebook
         self.tabs = ttk.Notebook(root)
@@ -61,9 +63,9 @@ class App:
             )
             self.tabs.add(self.notifications_tab.frame, text="Notifications")
 
-            # threading.Thread(
-            #     target=start_agent, args=(self.notifications_tab.refresh,), daemon=True
-            # ).start()
+            threading.Thread(
+                target=start_agent, args=(self.notifications_tab.refresh,), daemon=True
+            ).start()
 
         # Map Tab
         if role in ["tubero", "manager"]:
@@ -71,37 +73,54 @@ class App:
             self.tabs.add(self.map_tab.frame, text="Map View")
 
         # Predictive Tab
-        if role == "manager":
+        if role in ["operator", "manager"]:
             self.predict_tab = PredictiveTab(self.tabs, self.pm)
             self.tabs.add(self.predict_tab.frame, text="Predictive Model")
 
         self.tabs.bind("<<NotebookTabChanged>>", self.on_tab_change)
 
-    def on_tab_change(self, event):
-        # Get the text of the currently selected tab
-        selected_tab = self.tabs.tab(self.tabs.select(), "text")
+    def _load_predictive_models(self):
+        """Loads machine learning models in the background."""
+        try:
+            self.pm.initModel()
+            # Safely refresh the UI once loaded
+            if hasattr(self, "predict_tab"):
+                self.root.after(0, self.predict_tab.refresh_view)
+        except Exception as e:
+            print(f"Error loading predictive models: {e}")
 
-        # Trigger specific refreshes based on the tab name
-        if selected_tab == "Map View":
-            if hasattr(self, "map_tab"):
-                self.map_tab.refresh()
-        elif selected_tab == "Notifications":
-            if hasattr(self, "notifications_tab"):
-                self.notifications_tab.refresh()
+    def on_tab_change(self, event):
+        # FIX: Add a safety check to ensure the notebook hasn't been destroyed
+        if not self.tabs.winfo_exists():
+            return
+
+        try:
+            # Check if there are any tabs selected to prevent 'Invalid slave specification'
+            selected_id = self.tabs.select()
+            if not selected_id:
+                return
+
+            selected_tab = self.tabs.tab(selected_id, "text")
+
+            if selected_tab == "Map View":
+                if hasattr(self, "map_tab"):
+                    self.map_tab.refresh()
+            elif selected_tab == "Notifications":
+                if hasattr(self, "notifications_tab"):
+                    self.notifications_tab.refresh()
+        except tk.TclError:
+            # Catch trailing Tkinter errors that occur mid-destruction
+            pass
 
     def logout(self):
-        if hasattr(self, "map_tab") and hasattr(self.map_tab, "_refresh_id"):
-            self.root.after_cancel(self.map_tab._refresh_id)
-
         self.root.withdraw()
 
         entry_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "entry.py")
         )
-
         subprocess.Popen([sys.executable, entry_path])
-        self.root.quit()
-        self.root.destroy()
+
+        os._exit(0)
 
 
 def start_agent(callback):

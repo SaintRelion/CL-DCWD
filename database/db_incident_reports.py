@@ -2,20 +2,25 @@ from datetime import datetime, timedelta
 from database.db_base import db_cursor, conn
 
 
-def get_rolling_counts(location_id, reference_time, days=7):
+def get_rolling_counts(location_id, reference_time, days=7, group_ids=None):
     """
-    Count number of incidents for a location in the past `days` days up to `reference_time`.
+    Count incidents for a location in the past X days, optionally filtered by category groups.
     """
     reference_dt = datetime.strptime(reference_time, "%Y-%m-%d %H:%M:%S")
     start_dt = reference_dt - timedelta(days=days)
 
-    db_cursor.execute(
-        """
+    sql = """
         SELECT COUNT(*) FROM incident_reports
         WHERE location_id = %s AND timestamp >= %s AND timestamp <= %s
-        """,
-        (location_id, start_dt, reference_dt),
-    )
+    """
+    params = [location_id, start_dt, reference_dt]
+
+    # Add category filtering if groups are provided
+    if group_ids:
+        sql += f" AND keyword_category_id IN ({','.join(['%s'] * len(group_ids))})"
+        params.extend(group_ids)
+
+    db_cursor.execute(sql, tuple(params))
     count = db_cursor.fetchone()[0]
     return count
 

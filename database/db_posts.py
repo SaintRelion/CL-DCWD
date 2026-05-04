@@ -10,14 +10,16 @@ def get_posts(status_filter="All", limit=None):
         query += " AND status = %s"
         params.append(status_filter)
 
-    query += " ORDER BY date_scraped DESC LIMIT %s"
-    params.append(limit)
+    query += " ORDER BY scraper_init DESC, date_scraped DESC"
+    if limit:
+        query += " LIMIT %s"
+        params.append(limit)
 
     db_cursor.execute(query, tuple(params))
     return db_cursor.fetchall()
 
 
-def insert_post(post, intent, score, status, location_row=None):
+def insert_post(post, intent, score, status, location_row=None, scraper_init=None):
     db_cursor.execute("SELECT id FROM posts WHERE raw_post_text=%s;", (post,))
     row = db_cursor.fetchone()
     if row:
@@ -30,11 +32,11 @@ def insert_post(post, intent, score, status, location_row=None):
     db_cursor.execute(
         """
         INSERT INTO posts
-        (raw_post_text, nlp_intent, nlp_score, date_scraped, status, location_id, latitude, longitude)
-        VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s)
+        (raw_post_text, nlp_intent, nlp_score, date_scraped, status, location_id, latitude, longitude, scraper_init)
+        VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (post, intent, score, status, location_id, latitude, longitude),
+        (post, intent, score, status, location_id, latitude, longitude, scraper_init),
     )
 
     post_id = db_cursor.fetchone()[0]

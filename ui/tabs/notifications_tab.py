@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from core.incident_email import send_incident_email
+from utils.incident_email import send_incident_email
 from database.db_posts import get_posts, update_post_operator
 
 
@@ -124,7 +124,7 @@ class NotificationsTab:
                 wraplength=600,
                 justify="left",
                 bg=bg_color,
-                font=("Arial", 11),
+                font=("Arial", 14),
             ).pack(anchor="w")
 
             # Intent & Confidence
@@ -135,7 +135,7 @@ class NotificationsTab:
                 frame,
                 text=meta_info,
                 bg=bg_color,
-                font=("Arial", 9, "italic"),
+                font=("Arial", 11, "italic"),
                 fg="#555",
             ).pack(anchor="w", pady=(2, 0))
 
@@ -144,7 +144,7 @@ class NotificationsTab:
                 frame,
                 text=location_text,
                 bg=bg_color,
-                font=("Arial", 9, "bold"),
+                font=("Arial", 11, "bold"),
                 fg="#2c3e50",
             ).pack(anchor="w", pady=(2, 5))
 
@@ -156,7 +156,7 @@ class NotificationsTab:
                 footer,
                 text=f"Operator Status: {status}",
                 bg=bg_color,
-                font=("Arial", 9, "bold"),
+                font=("Arial", 11, "bold"),
             ).pack(side="left")
 
             # Action Button
@@ -166,7 +166,7 @@ class NotificationsTab:
                 command=lambda p=post_id, t=post_text, l=loc_id, i=intent: self.open_status_popup(
                     p, t, l, i
                 ),
-                font=("Arial", 9),
+                font=("Arial", 11),
             ).pack(side="right")
 
     def open_status_popup(
@@ -178,7 +178,7 @@ class NotificationsTab:
         popup.padx = 15
 
         # --- Post Context ---
-        tk.Label(popup, text="Original Post:", font=("Arial", 9, "bold")).pack(
+        tk.Label(popup, text="Original Post:", font=("Arial", 11, "bold")).pack(
             anchor="w", padx=15, pady=(10, 0)
         )
         tk.Label(
@@ -190,7 +190,7 @@ class NotificationsTab:
         ).pack(anchor="w", padx=15)
 
         # --- Decision Dropdown ---
-        tk.Label(popup, text="Set Status:", font=("Arial", 9, "bold")).pack(
+        tk.Label(popup, text="Set Status:", font=("Arial", 11, "bold")).pack(
             pady=(10, 0)
         )
         operator_var = tk.StringVar(value="Under Evaluation")
@@ -286,6 +286,6 @@ class NotificationsTab:
             text="Confirm Decision",
             bg="#3498db",
             fg="white",
-            font=("Arial", 10, "bold"),
+            font=("Arial", 12, "bold"),
             command=save_changes,
         ).pack(pady=20)

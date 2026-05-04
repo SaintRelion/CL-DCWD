@@ -1,12 +1,14 @@
-from nlp_processor import NLPProcessor
-from location_validator import LocationValidator
+from datetime import datetime
+
+from ai.nlp_processor import NLPProcessor
+from ai.location_validator import LocationValidator
 from database.db_posts import insert_post
 
 nlp = NLPProcessor()
 lv = LocationValidator()
 
 
-def process_post(raw_text: str):
+def process_post(raw_text: str, scraper_init: datetime):
     intent, confidence = nlp.extract_intent(raw_text)
 
     barangay = lv.matchBarangay(raw_text)
@@ -31,4 +33,5 @@ def process_post(raw_text: str):
         score=confidence,
         status=status,
         location_row=location_row,
+        scraper_init=scraper_init,
     )

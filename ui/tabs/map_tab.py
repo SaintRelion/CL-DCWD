@@ -219,7 +219,7 @@ class MapTab:
 
         # 4. Build UI Cards
         for row in incidents:
-            (id, post_id, cat_id, loc_id, lat, lon, ts, cond, stat, cat_name) = row
+            id, post_id, cat_id, loc_id, lat, lon, ts, cond, stat, cat_name = row
 
             # --- TIME & STYLE LOGIC ---
             now: datetime = datetime.now()
@@ -274,7 +274,7 @@ class MapTab:
             lbl_title = tk.Label(
                 info_frame,
                 text=cat_name.upper(),
-                font=("Arial", 10, "bold"),
+                font=("Arial", 14, "bold"),
                 bg="white",
                 fg="#2c3e50",
             )
@@ -284,7 +284,7 @@ class MapTab:
             lbl_loc = tk.Label(
                 info_frame,
                 text=f"📍 {loc_data['street']}",
-                font=("Arial", 9),
+                font=("Arial", 11),
                 bg="white",
                 fg="#7f8c8d",
             )
@@ -298,7 +298,7 @@ class MapTab:
             lbl_badge = tk.Label(
                 badge_frame,
                 text=f"{theme['sym']} {stat.upper()} • {time_str}",
-                font=("Consolas", 8, "bold"),
+                font=("Consolas", 10, "bold"),
                 fg=theme["fg"],
                 bg=theme["bg"],
             )
@@ -313,7 +313,7 @@ class MapTab:
                 tk.Button(
                     btn_container,
                     text="UPDATE",
-                    font=("Arial", 9, "bold"),
+                    font=("Arial", 11, "bold"),
                     bg="#3498db",
                     fg="white",
                     relief="flat",
@@ -385,14 +385,14 @@ class MapTab:
         tk.Label(
             popup,
             text="Update Progress",
-            font=("Arial", 11, "bold"),
+            font=("Arial", 12, "bold"),
             bg="white",
             pady=15,
         ).pack()
 
         status_var = tk.StringVar(value=current_stat)
         menu = tk.OptionMenu(popup, status_var, "Pending", "Handled")
-        menu.config(width=15, font=("Arial", 10))
+        menu.config(width=15, font=("Arial", 11))
         menu.pack(pady=5)
 
         def save_and_refresh():
@@ -409,7 +409,7 @@ class MapTab:
             text="SAVE CHANGES",
             bg="#2ecc71",
             fg="white",
-            font=("Arial", 10, "bold"),
+            font=("Arial", 11, "bold"),
             width=18,
             pady=10,
             relief="flat",

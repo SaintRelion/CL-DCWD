@@ -4,7 +4,9 @@ from database.db_posts import get_posts
 
 
 class FBGroupScraper:
-    def __init__(self, storage_path):
+    def __init__(self, storage_path, scraper_init):
+        self.scraper_init = scraper_init
+
         def load_seen_posts():
             rows = get_posts()
             seen = set()
@@ -47,24 +49,27 @@ class FBGroupScraper:
             except:
                 pass
 
-    async def scroll_and_collect(self, scrolls=3):
+    async def scroll_and_collect(self, scrolls=12, step_fraction=0.6):
         new_posts = []
 
         for _ in range(scrolls):
-            await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            # Scroll by a fraction of the viewport height instead of jumping to bottom
+            await self.page.evaluate(f"""
+                window.scrollBy(0, window.innerHeight * {step_fraction});
+            """)
             await self.page.wait_for_timeout(3000)
             await self.close_modals()
 
             posts = await self.page.query_selector_all(
                 'div[data-ad-rendering-role="story_message"]'
             )
-
             for post in posts:
                 text = (await post.inner_text()).strip()
                 if text and text not in self.seen_posts:
                     self.seen_posts.add(text)
                     new_posts.append(text)
 
+        new_posts.reverse()
         return new_posts
 
     async def gentle_refresh(self):
