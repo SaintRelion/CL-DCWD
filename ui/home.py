@@ -13,7 +13,6 @@ from ui.tabs.predictive_tab import PredictiveTab
 from ui.tabs.notifications_tab import NotificationsTab
 from scraper.scraper_agent import run_agent
 
-from ai.nlp_processor import NLPProcessor
 from ai.location_validator import LocationValidator
 
 from ai.predictive_model import PredictiveModel
@@ -45,7 +44,6 @@ class App:
         )
 
         # Initialize modules
-        self.nlp = NLPProcessor()
         self.lv = LocationValidator()
         self.pm = PredictiveModel()
 
@@ -59,7 +57,7 @@ class App:
         # Notifications Tab
         if role == "operator":
             self.notifications_tab = NotificationsTab(
-                self.tabs, self.nlp, self.lv, self.email, self.role
+                self.tabs, self.lv, self.email, self.role
             )
             self.tabs.add(self.notifications_tab.frame, text="Notifications")
 

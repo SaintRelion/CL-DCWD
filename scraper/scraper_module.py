@@ -50,10 +50,14 @@ class FBGroupScraper:
                 pass
 
     async def scroll_and_collect(self, scrolls=12, step_fraction=0.6):
-        new_posts = []
+        new_posts_this_round = []
+        hit_boundary = False
 
         for _ in range(scrolls):
-            # Scroll by a fraction of the viewport height instead of jumping to bottom
+            # If we already connected to our known timeline, stop scrolling!
+            if hit_boundary:
+                break
+
             await self.page.evaluate(f"""
                 window.scrollBy(0, window.innerHeight * {step_fraction});
             """)
@@ -63,14 +67,25 @@ class FBGroupScraper:
             posts = await self.page.query_selector_all(
                 'div[data-ad-rendering-role="story_message"]'
             )
+
             for post in posts:
                 text = (await post.inner_text()).strip()
-                if text and text not in self.seen_posts:
-                    self.seen_posts.add(text)
-                    new_posts.append(text)
+                if not text:
+                    continue
 
-        new_posts.reverse()
-        return new_posts
+                if text in self.seen_posts:
+                    hit_boundary = True
+                    break  # Stop processing this DOM snapshot immediately
+                else:
+                    # Only add if it's new AND we haven't hit the boundary yet
+                    if text not in new_posts_this_round:
+                        new_posts_this_round.append(text)
+
+        for text in new_posts_this_round:
+            self.seen_posts.add(text)
+
+        new_posts_this_round.reverse()
+        return new_posts_this_round
 
     async def gentle_refresh(self):
         await self.page.evaluate("window.scrollTo(0, 0)")

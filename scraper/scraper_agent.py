@@ -4,7 +4,7 @@ from datetime import datetime
 from scraper.post_pipeline import process_post
 from scraper.scraper_module import FBGroupScraper
 
-GROUP_URL = "https://web.facebook.com/groups/901727836168332"
+GROUP_URL = "https://web.facebook.com/groups/867214026016354"
 
 
 async def run_agent(on_new_posts=None):
@@ -19,13 +19,14 @@ async def run_agent(on_new_posts=None):
             print("[AGENT] Scanning for new posts...")
 
             await scraper.gentle_refresh()
-            new_posts = await scraper.scroll_and_collect(scrolls=8)
+            new_posts = await scraper.scroll_and_collect(scrolls=14)
 
             if new_posts:
                 print(f"[AGENT] Found {len(new_posts)} new posts")
                 for post in new_posts:
                     print(post)
-                    process_post(post, scraper_init)
+
+                process_post(new_posts, scraper_init)
 
                 if on_new_posts:
                     on_new_posts()
