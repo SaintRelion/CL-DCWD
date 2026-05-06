@@ -247,6 +247,23 @@ class MapTab:
         )
         card.pack(fill="x", padx=10, pady=5)
 
+        # Only show if the logged-in user is an operator
+        if self.role == "operator":
+            btn_container = tk.Frame(card, bg=theme["bg"])
+            btn_container.pack(side="right", fill="y", padx=10)
+
+            tk.Button(
+                btn_container,
+                text="UPDATE",
+                font=("Arial", 9, "bold"),
+                bg=theme["fg"],
+                fg="white",
+                relief="flat",
+                padx=15,
+                pady=8,
+                command=lambda i=inc_id, s=stat: self.open_update_popup(i, s),
+            ).pack(expand=True)
+
         accent = tk.Frame(card, bg=theme["fg"], width=5)
         accent.pack(side="left", fill="y")
 

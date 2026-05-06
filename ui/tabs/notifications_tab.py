@@ -130,7 +130,7 @@ class NotificationsTab:
             )
             frame.pack(fill="x", pady=5, padx=10)
 
-            if incident_id:
+            if incident_id and status == "actual incident":
                 tk.Label(
                     frame,
                     text=f"TICKET #{incident_id}",
@@ -290,7 +290,7 @@ class NotificationsTab:
         # --- DRAWING THE TICKET ---
         c.setFont("Helvetica-Bold", 16)
         c.drawCentredString(
-            width / 2, height - 1 * inch, "OFFICIAL DISPATCH WORK ORDER"
+            width / 2, height - 0.8 * inch, "OFFICIAL DISPATCH WORK ORDER"
         )
 
         c.setFont("Helvetica", 10)
@@ -298,18 +298,29 @@ class NotificationsTab:
             timestamp.strftime("%B %d, %Y - %I:%M %p") if timestamp else "N/A"
         )
         c.drawCentredString(
-            width / 2, height - 1.2 * inch, f"Generated on: {readable_date}"
+            width / 2, height - 1.0 * inch, f"Generated on: {readable_date}"
         )
 
         # Section: Incident Details
-        c.line(0.5 * inch, height - 1.5 * inch, 7.5 * inch, height - 1.5 * inch)
+        c.line(0.5 * inch, height - 1.2 * inch, 7.5 * inch, height - 1.2 * inch)
 
-        y = height - 1.8 * inch
+        y = height - 1.5 * inch
         c.setFont("Helvetica-Bold", 12)
         c.drawString(0.7 * inch, y, f"TICKET ID: #{incident_db_id}")
+
         c.drawString(4.0 * inch, y, f"CATEGORY: {(category or 'N/A').upper()}")
 
-        y -= 0.3 * inch
+        y -= 0.25 * inch
+        c.setFont("Helvetica", 10)
+        c.drawString(4.0 * inch, y, "In detail (Handwritten):")
+
+        # --- MAXIMIZED VERTICAL FOR CATEGORY DETAIL (1.2 inches) ---
+        c.setDash(2, 2)
+        c.rect(4.0 * inch, y - 1.25 * inch, 3.5 * inch, 1.2 * inch)
+        c.setDash(1, 0)
+
+        # Resume Location info (Shifted down to accommodate larger box)
+        y -= 1.45 * inch
         c.setFont("Helvetica", 11)
         c.drawString(0.7 * inch, y, f"LOCATION: Brgy. {barangay or 'N/A'}")
         if street:
@@ -325,33 +336,41 @@ class NotificationsTab:
         c.drawString(0.7 * inch, y, "Original Social Media Report:")
         y -= 0.2 * inch
 
-        # Simple text wrap for the raw post
         text_obj = c.beginText(0.7 * inch, y)
         text_obj.setFont("Helvetica-Oblique", 9)
-        # Wrap text to ~70 chars
         wrapped_text = [post_text[i : i + 80] for i in range(0, len(post_text), 80)]
         for line in wrapped_text:
             text_obj.textLine(line)
         c.drawText(text_obj)
 
         # --- PEN/HANDWRITTEN REMARKS SECTION ---
-        # We move the cursor down further to create the "Vertical Space"
-        y_remarks = y - (len(wrapped_text) * 0.15 * inch) - 0.5 * inch
-
+        # Adjusting space so the main remarks box takes remaining center space
+        y_remarks = y - (len(wrapped_text) * 0.15 * inch) - 0.4 * inch
         c.setFont("Helvetica-Bold", 12)
         c.drawString(0.7 * inch, y_remarks, "PLUMBER REMARKS (Handwritten Report):")
 
-        # Draw a large box for the pen report
-        box_height = 3.0 * inch
-        c.setDash(3, 3)  # Dashed lines look better for handwriting areas
+        # Main box (Height automatically fits based on remaining space before signature)
+        box_height = 2.0 * inch
+        c.setDash(3, 3)
         c.rect(0.7 * inch, y_remarks - box_height - 0.1 * inch, 6.8 * inch, box_height)
 
+        # --- SIGNATURE SECTION AT THE VERY BOTTOM RIGHT ---
+        # Push signature line as far down as possible (1.2 inch from bottom)
+        sig_y = 1.2 * inch
+        c.setDash(1, 0)
+        c.setFont("Helvetica", 10)
+        # Line for signature
+        c.line(5.0 * inch, sig_y, 7.5 * inch, sig_y)
+        # Plumber name below the line
+        c.drawCentredString(
+            6.25 * inch, sig_y - 0.15 * inch, f"{plumber or 'Tubero Name'}"
+        )
+
         # Footer
-        c.setDash(1, 0)  # Back to solid
         c.setFont("Helvetica", 8)
         c.drawCentredString(
             width / 2,
-            0.5 * inch,
+            0.4 * inch,
             "Please return this form to the office once the maintenance is completed.",
         )
 
