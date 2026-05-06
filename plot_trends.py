@@ -8,31 +8,41 @@ from datetime import datetime
 from typing import List, Optional, Literal
 from fpdf import FPDF  # NEW: PDF Library
 
+from database.db_keywords import keyword_dict
 from database.db_locations import get_location_by_id
 from database.db_incident_reports import get_incident_reports
 
-# ── Category mapping ────────────────────────────────────────────────────────
-CAT_GROUPS = {
-    **{k: 0 for k in [1, 4, 7]},  # No Water
-    **{k: 1 for k in [2, 5, 8]},  # Leak
-    **{k: 2 for k in [3, 6, 9]},  # Dirty Water
-}
-CAT_NAMES = {0: "No Water", 1: "Leak", 2: "Dirty Water"}
-CAT_COLORS = {0: "#378ADD", 1: "#D85A30", 2: "#1D9E75"}
+# Category mapping
+CAT_NAMES = {v: k.title().replace("_", " ") for k, v in keyword_dict.items()}
+_COLORS = ["#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22"]
+CAT_COLORS = {v: _COLORS[i % len(_COLORS)] for i, v in enumerate(keyword_dict.values())}
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# Helpers
 def load_dataframe() -> Optional[pd.DataFrame]:
     records = get_incident_reports(limit=None)
     if not records:
         return None
-    cols = ["id", "pid", "cat_id", "loc_id", "lat", "lon", "ts", "t1", "t2", "cat_name"]
+
+    cols = [
+        "id",
+        "ts",
+        "cat_name",
+        "loc_id",
+        "street_name",
+        "plumber_name",
+        "status",
+        "remarks",
+    ]
     df = pd.DataFrame(records, columns=cols)
     df["ts"] = pd.to_datetime(df["ts"])
-    df["cat_grp"] = df["cat_id"].map(CAT_GROUPS)
-    df = df[df["cat_grp"].notna()].copy()
-    df["cat_grp"] = df["cat_grp"].astype(int)
     df["loc_id"] = df["loc_id"].astype(str)
+
+    df["cat_group"] = df["cat_name"].str.lower().map(keyword_dict)
+
+    df = df.dropna(subset=["cat_group"])
+    df["cat_group"] = df["cat_group"].astype(int)
+
     return df
 
 
@@ -44,15 +54,19 @@ def get_location_label(loc_id: str) -> str:
 
 
 def build_location_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Per-location counts per category, plus dominant category."""
-    grp = (
-        df.groupby(["loc_id", "cat_grp"])
-        .size()
-        .unstack(fill_value=0)
-        .reindex(columns=[0, 1, 2], fill_value=0)
-    )
-    grp["total"] = grp.sum(axis=1)
-    grp["dominant"] = grp[[0, 1, 2]].idxmax(axis=1)
+    valid_cat_ids = sorted(list(keyword_dict.values()))
+
+    grp = df.groupby(["loc_id", "cat_group"]).size().unstack(fill_value=0)
+    grp.index = grp.index.map(lambda x: str(x))
+
+    grp.columns = grp.columns.astype(int)
+
+    grp = grp.reindex(columns=valid_cat_ids, fill_value=0)
+
+    grp["total"] = grp[valid_cat_ids].sum(axis=1)
+
+    grp["dominant"] = grp[valid_cat_ids].idxmax(axis=1)
+
     return grp.reset_index().sort_values("total", ascending=False)
 
 
@@ -61,7 +75,7 @@ ResolutionT = Literal["D", "W", "M", "Q"]  # daily / weekly / monthly / quarterl
 _RESOLUTION_LABELS = {"D": "Daily", "W": "Weekly", "M": "Monthly", "Q": "Quarterly"}
 
 
-# ── PDF Generation ───────────────────────────────────────────────────────────
+# PDF Generation
 def export_trend_pdf(
     image_path: str,
     loc_summary: pd.DataFrame,
@@ -71,77 +85,81 @@ def export_trend_pdf(
     date_to_dt: datetime,
     output_path: str = "incident_trend_report.pdf",
 ) -> None:
-    """Generates a structured PDF with the chart and a color-coded discussion."""
     pdf = FPDF()
     pdf.add_page()
 
-    # 1. Place the generated chart at the top
-    # A4 width is 210mm. Margins are 10mm. Usable width = 190mm.
-    pdf.image(image_path, x=10, y=10, w=190)
+    # 1. Image Header
+    if os.path.exists(image_path):
+        pdf.image(image_path, x=10, y=10, w=190)
 
-    # 2. Push text down below the image (Aspect ratio puts bottom around 145mm)
+    # Move cursor below the image
     pdf.set_y(150)
 
-    # 3. Report Header
+    # 2. Executive Summary Header
     pdf.set_font("helvetica", "B", 16)
-    pdf.set_text_color(44, 44, 42)  # Dark Gray
+    pdf.set_text_color(44, 44, 42)
     pdf.cell(0, 10, "Executive Summary & Location Breakdown", ln=True)
 
     pdf.set_font("helvetica", "", 10)
-    pdf.set_text_color(95, 94, 90)  # Light Gray
+    pdf.set_text_color(95, 94, 90)
     date_str = (
         f"{date_from_dt.strftime('%b %d, %Y')} to {date_to_dt.strftime('%b %d, %Y')}"
     )
     pdf.cell(0, 6, f"Analysis Period: {date_str}", ln=True)
     pdf.ln(5)
 
-    # RGB mapping based on your hex CAT_COLORS
-    color_map = {
-        0: (55, 138, 221),  # No Water (Blue)
-        1: (216, 90, 48),  # Leak (Orange)
-        2: (29, 158, 117),  # Dirty Water (Green)
-    }
-
-    # 4. Grouped Colorful Discussion
+    # 3. Process Locations
     for loc_id in selected_locs:
-        row = loc_summary[loc_summary["loc_id"] == loc_id].iloc[0]
-        loc_name = loc_labels[loc_id]
+        # Get the row for this location
+        loc_rows = loc_summary[loc_summary["loc_id"] == loc_id]
+        if loc_rows.empty:
+            continue
+        row = loc_rows.iloc[0]
+
+        loc_name = loc_labels.get(loc_id, f"Location {loc_id}")
         total = row["total"]
-        dominant_cat = row["dominant"]
-        dom_name = CAT_NAMES[dominant_cat]
+        dominant_cat = int(row["dominant"])
+        dom_name = CAT_NAMES.get(dominant_cat, "UNKNOWN")
 
         # Location Title
         pdf.set_font("helvetica", "B", 12)
         pdf.set_text_color(44, 44, 42)
         pdf.cell(0, 8, f"> {loc_name} (Total Incidents: {total})", ln=True)
 
-        # Dominant Issue with dynamic color mapping
+        # Dominant Issue with dynamic color extraction
         pdf.set_font("helvetica", "", 10)
         pdf.set_text_color(0, 0, 0)
         pdf.cell(10, 6, "", border=0)  # Indent
         pdf.write(6, "Dominant Issue: ")
 
-        # Inject the specific color for the category
-        r, g, b = color_map[dominant_cat]
+        # DYNAMIC COLOR EXTRACTION: Convert Hex from CAT_COLORS to RGB
+        hex_color = CAT_COLORS.get(dominant_cat, "#000000").lstrip("#")
+        r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+
         pdf.set_font("helvetica", "B", 10)
         pdf.set_text_color(r, g, b)
         pdf.write(6, f"{dom_name.upper()}\n")
 
-        # Raw Breakdown
+        # Dynamic Breakdown Text
         pdf.set_font("helvetica", "", 9)
         pdf.set_text_color(80, 80, 80)
         pdf.cell(10, 5, "", border=0)  # Indent
-        breakdown_text = (
-            f"Breakdown: {row[0]} No Water  |  {row[1]} Leaks  |  {row[2]} Dirty Water"
-        )
+
+        # Build the breakdown string dynamically based on existing categories in the row
+        parts = []
+        for cat_id in sorted(keyword_dict.values()):
+            val = row.get(cat_id, 0)
+            parts.append(f"{val} {CAT_NAMES.get(cat_id, str(cat_id))}")
+
+        breakdown_text = f"Breakdown: {'  |  '.join(parts)}"
         pdf.cell(0, 5, breakdown_text, ln=True)
-        pdf.ln(4)  # Space between locations
+        pdf.ln(4)
 
     pdf.output(output_path)
     print(f"[SUCCESS] PDF Report saved → {output_path}")
 
 
-# ── Main plot ────────────────────────────────────────────────────────────────
+# Main plot
 def plot_monthly_trend(
     top_n_locations: int = 10,
     locations: Optional[List[int]] = None,
@@ -162,7 +180,7 @@ def plot_monthly_trend(
         print("[PLOT] No data available.")
         return
 
-    # ── 1. Date filtering ────────────────────────────────────────────────────
+    # Date filtering
     date_from_dt = pd.to_datetime(date_from) if date_from else df["ts"].min()
     date_to_dt = pd.to_datetime(date_to) if date_to else datetime.now()
 
@@ -173,7 +191,7 @@ def plot_monthly_trend(
         )
         return
 
-    # ── 2. Location filtering ────────────────────────────────────────────────
+    # Location filtering
     loc_summary = build_location_summary(df)
 
     if locations:
@@ -193,7 +211,7 @@ def plot_monthly_trend(
 
     loc_labels = {loc: get_location_label(loc) for loc in selected_locs}
 
-    # ── 3. Build subtitle from active filters ─────────────────────────────────
+    # 3. Build subtitle from active filters
     range_label = (
         f"{date_from_dt.strftime('%b %d %Y')} → {date_to_dt.strftime('%b %d %Y')}"
     )
@@ -206,7 +224,7 @@ def plot_monthly_trend(
         f"{loc_label}  ·  {range_label}  ·  {_RESOLUTION_LABELS[resolution]} buckets"
     )
 
-    # ── 4. Figure layout ──────────────────────────────────────────────────────
+    # 4. Figure layout
     fig = plt.figure(figsize=(16, 11), facecolor="#FAFAFA")
     gs = gridspec.GridSpec(
         2,
@@ -231,7 +249,7 @@ def plot_monthly_trend(
     )
     fig.text(0.5, 0.935, subtitle, ha="center", fontsize=9, color="#5F5E5A")
 
-    # ── 5. Bubble congregation panel ─────────────────────────────────────────
+    # 5. Bubble congregation panel
     max_total = loc_summary["total"].max()
 
     for xi, row in enumerate(loc_summary.itertuples()):
@@ -289,13 +307,13 @@ def plot_monthly_trend(
             markersize=9,
             label=CAT_NAMES[c],
         )
-        for c in [0, 1, 2]
+        for c in sorted(keyword_dict.values())
     ]
     ax_bubble.legend(
         handles=legend_handles, loc="upper right", fontsize=9, frameon=False
     )
 
-    # ── 6. Trend panel (resolution-aware) ────────────────────────────────────
+    # Trend panel (resolution-aware)
     df_sel = df[df["loc_id"].isin(selected_locs)].copy()
     df_sel["bucket"] = df_sel["ts"].dt.to_period(resolution)
 
@@ -358,7 +376,7 @@ def plot_monthly_trend(
         handles=trend_handles, loc="upper left", ncol=2, fontsize=8, frameon=False
     )
 
-    # ── 7. Save Image & Trigger PDF Build ────────────────────────────────────
+    # Save Image & Trigger PDF Build
     plt.savefig(output_image, dpi=150, bbox_inches="tight", facecolor="#FAFAFA")
     plt.close()
     print(f"[SUCCESS] Chart saved → {output_image}")

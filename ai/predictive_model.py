@@ -1,7 +1,6 @@
 import os
 import joblib
 import pandas as pd
-import numpy as np
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,38 +23,36 @@ class PredictiveModel:
         self.per_location_models = (
             {}
         )  # { "1": {"model": Ridge, "scaler": StandardScaler}, ... }
-        self.initModel()
+        self.index_to_cat = {}  # { 0: "dirty water", 1: "leak", 2: "no water" }
 
     def initModel(self):
-        """Loads the per-location isolated Ridge models from disk."""
-        path = os.path.join(MODEL_DIR, "per_location_models.pkl")
+        """Loads the per-location isolated Ridge models and category mapping from disk."""
         try:
-            self.per_location_models = joblib.load(path)
+            self.per_location_models = joblib.load(
+                os.path.join(MODEL_DIR, "per_location_models.pkl")
+            )
+            self.index_to_cat = joblib.load(os.path.join(MODEL_DIR, "index_to_cat.pkl"))
             print(
-                f"[PREDICTIVE] Loaded {len(self.per_location_models)} isolated location models."
+                f"[PREDICTIVE] Loaded {len(self.per_location_models)} isolated location models "
+                f"with categories: {list(self.index_to_cat.values())}"
             )
         except Exception as e:
-            print(f"[ERROR] Failed to load per-location models: {e}")
+            print(f"[ERROR] Failed to load model files: {e}")
             self.per_location_models = {}
+            self.index_to_cat = {}
 
     def reloadModel(self):
-        """Refreshes models from disk after a retrain."""
         self.initModel()
 
     def get_daily_risk_report(self, location_id):
-        """
-        Returns peak risk percentages for the given location across all time bins.
-
-        Returns: { 1: <no_water_%>, 2: <leak_%>, 3: <dirty_water_%> }
-
-        Because each location has its own model trained on its own data only,
-        simulating incidents at location X has ZERO effect on location Y.
-        """
         loc_str = str(location_id)
 
-        if loc_str not in self.per_location_models:
-            # Location has no model (shouldn't happen after full train)
-            return {1: 0.0, 2: 0.0, 3: 0.0}
+        if loc_str not in self.per_location_models or not self.index_to_cat:
+            return (
+                {cat: 0.0 for cat in self.index_to_cat.values()}
+                if self.index_to_cat
+                else {}
+            )
 
         bundle = self.per_location_models[loc_str]
         model = bundle["model"]
@@ -64,19 +61,18 @@ class PredictiveModel:
         now = datetime.now()
         current_day = now.weekday()
 
-        peak_risks = {1: 0.0, 2: 0.0, 3: 0.0}
+        peak_risks = {cat: 0.0 for cat in self.index_to_cat.values()}
 
         for t_bin in [1, 2, 3, 4]:
             X_raw = pd.DataFrame([{"day_of_week": current_day, "time_bin": t_bin}])
             X_scaled = scaler.transform(X_raw)
 
-            # raw_probs shape: (1, 3)  → [no_water, leak, dirty]
             raw_probs = model.predict(X_scaled)[0]
 
             for i, p in enumerate(raw_probs):
                 pct = round(max(0.0, float(p)) * 100, 2)
-                category_id = i + 1
-                if pct > peak_risks[category_id]:
-                    peak_risks[category_id] = pct
+                cat_name = self.index_to_cat[i]
+                if pct > peak_risks[cat_name]:
+                    peak_risks[cat_name] = pct
 
         return peak_risks

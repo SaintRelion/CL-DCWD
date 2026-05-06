@@ -12,7 +12,7 @@ class LoginWindow:
 
         self.root = root
         self.root.title("DCWD Incident Monitoring System")
-        center_window(self.root, 400, 300)
+        center_window(self.root, 400, 270)
         self.root.resizable(False, False)
 
         main = ttk.Frame(root, padding=30)
@@ -31,10 +31,6 @@ class LoginWindow:
         self.password.pack(fill="x", pady=5)
 
         ttk.Button(main, text="Login", command=self.login).pack(pady=10)
-
-        ttk.Separator(main).pack(fill="x", pady=10)
-
-        ttk.Button(main, text="Register New User", command=self.open_register).pack()
 
     def login(self):
 
@@ -59,7 +55,3 @@ class LoginWindow:
 
         else:
             messagebox.showerror("Login Failed", "Invalid credentials")
-
-    def open_register(self):
-
-        RegisterWindow(self.root)

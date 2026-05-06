@@ -1,8 +1,7 @@
-import os
 import json
 import time
 import requests
-from typing import Tuple, List, Dict
+from typing import List, Dict
 from database.db_keywords import keyword_dict
 
 CHUTES_API_URL = "https://llm.chutes.ai/v1/chat/completions"
@@ -15,36 +14,33 @@ class ChutesNLP:
         max_retries: int = 5,
         retry_delay: float = 5.0,
     ) -> None:
-        self.model_name = model_name
-        self.max_retries = max_retries
-        self.retry_delay = retry_delay
+        self.model_name: str = model_name
+        self.max_retries: int = max_retries
+        self.retry_delay: float = retry_delay
+        # Pull category keys dynamically from our unified keyword dictionary
         self.valid_categories: List[str] = list(keyword_dict.keys())
 
-        self.api_key = "cpk_3c2497bb059b4fc4ab320aca6b039950.4075e624b7585b3f99ebfb8c03fd03aa.lUgrmeemCo0TdAeRuiWCjVXEBxfBdiuJ"
+        self.api_key: str = (
+            "cpk_3c2497bb059b4fc4ab320aca6b039950.4075e624b7585b3f99ebfb8c03fd03aa.lUgrmeemCo0TdAeRuiWCjVXEBxfBdiuJ"
+        )
 
-        self.headers = {
+        self.headers: Dict[str, str] = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
-    def extract_intent(self, post_text: str) -> Tuple[str, float]:
+    def extract_intent(self, post_text: str) -> str:
         """
         Classifies a single post.
-        Returns (category, confidence) — confidence is always 1.0 or 0.0
-        since the LLM gives us a label, not a probability.
+        Returns the category string (e.g., 'leak', 'no_water', or 'Unknown').
         """
         results = self._batch_classify([post_text])
-        return results[0]["intent"], results[0]["confidence"]
+        return results[0]["intent"]
 
-    def batch_extract_intent(self, posts: List[str]) -> List[Dict]:
+    def batch_extract_intent(self, posts: List[str]) -> List[Dict[str, str]]:
         """
         Classifies a list of posts in a SINGLE API request.
-        Returns a list of dicts in the same order as input:
-            [
-                {"post": "...", "intent": "dirty_water", "confidence": 1.0},
-                {"post": "...", "intent": "Unknown",     "confidence": 0.0},
-                ...
-            ]
+        Returns a list of dicts: [{"post": "...", "intent": "leak"}, ...]
         """
         return self._batch_classify(posts)
 
@@ -61,18 +57,18 @@ Rules:
 2. Use Unknown if the post does not match any category, is gibberish, keyboard smash, or unrelated to water incidents.
 3. Do not add explanations, punctuation, or markdown. Just the raw JSON array.
 
-Example response format: ["dirty_water", "leak", "Unknown", "no_water"]
+Example response format: ["dirty water", "leak", "Unknown", "no water"]
 
 Posts:
 {numbered}"""
 
-    def _batch_classify(self, posts: List[str]) -> List[Dict]:
+    def _batch_classify(self, posts: List[str]) -> List[Dict[str, str]]:
         prompt = self._build_prompt(posts)
 
         payload = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0,  # deterministic — we want consistent labels
+            "temperature": 0.0,
             "max_tokens": 200,
         }
 
@@ -85,7 +81,6 @@ Posts:
                     timeout=30,
                 )
 
-                # rate limited
                 if response.status_code == 429:
                     wait = self.retry_delay * attempt
                     print(
@@ -113,27 +108,36 @@ Posts:
         return self._build_results(posts, ["Unknown"] * len(posts))
 
     def _parse_labels(self, content: str, expected_count: int) -> List[str]:
-        """
-        Parse the LLM's JSON array response.
-        Falls back gracefully if the model adds markdown or extra text.
-        """
         try:
-            # strip markdown fences if model adds them
             clean = content.replace("```json", "").replace("```", "").strip()
             labels = json.loads(clean)
 
             if not isinstance(labels, list):
                 raise ValueError("Response is not a list")
 
-            # validate and normalize each label
             result = []
             for label in labels[:expected_count]:
-                normalized = "".join(c for c in str(label) if c.isalnum() or c == "_")
-                result.append(
-                    normalized if normalized in self.valid_categories else "Unknown"
+                # Allow spaces, letters, numbers, and underscores
+                normalized = (
+                    "".join(
+                        c for c in str(label) if c.isalnum() or c == "_" or c == " "
+                    )
+                    .strip()
+                    .lower()
                 )
 
-            # pad if model returned fewer labels than expected
+                # Check against valid_categories using relaxed matching
+                matched_category = "Unknown"
+                for valid_cat in self.valid_categories:
+                    if (
+                        valid_cat.replace(" ", "").lower()
+                        == normalized.replace(" ", "").lower()
+                    ):
+                        matched_category = valid_cat
+                        break
+
+                result.append(matched_category)
+
             while len(result) < expected_count:
                 result.append("Unknown")
 
@@ -143,12 +147,7 @@ Posts:
             print(f"[Chutes] Failed to parse response: {content!r} — {e}")
             return ["Unknown"] * expected_count
 
-    def _build_results(self, posts: List[str], labels: List[str]) -> List[Dict]:
-        return [
-            {
-                "post": post,
-                "intent": label,
-                "confidence": 1.0 if label != "Unknown" else 0.0,
-            }
-            for post, label in zip(posts, labels)
-        ]
+    def _build_results(
+        self, posts: List[str], labels: List[str]
+    ) -> List[Dict[str, str]]:
+        return [{"post": post, "intent": label} for post, label in zip(posts, labels)]

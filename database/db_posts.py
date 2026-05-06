@@ -1,10 +1,19 @@
-from database.db_incident_reports import update_incident_report
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
 from database.db_base import db_cursor, conn
 
 
 def get_posts(status_filter="All", limit=None):
-    query = "SELECT id, raw_post_text, status, location_id, latitude, longitude, nlp_intent, nlp_score FROM posts WHERE 1=1"
-    params = []
+    query: str = """
+        SELECT p.id, p.raw_post_text, p.username, p.profile_link, p.date_scraped, 
+               p.status, p.location_id, p.latitude, p.longitude, p.nlp_intent, 
+               p.scraper_init, ir.id as incident_id
+        FROM posts p
+        LEFT JOIN incident_reports ir ON p.id = ir.post_id
+        WHERE 1=1
+    """
+    params: List[Any] = []
 
     if status_filter != "All":
         query += " AND status = %s"
@@ -19,43 +28,68 @@ def get_posts(status_filter="All", limit=None):
     return db_cursor.fetchall()
 
 
-def insert_post(post, intent, score, status, location_row=None, scraper_init=None):
+def insert_post(
+    post: str,
+    username: str,
+    profile_link: str,
+    intent: str,
+    status: str,
+    location_row: Optional[Dict[str, Any]] = None,
+    scraper_init: Optional[datetime] = None,
+):
+
     db_cursor.execute("SELECT id FROM posts WHERE raw_post_text=%s;", (post,))
-    row = db_cursor.fetchone()
+    row: Optional[Tuple] = db_cursor.fetchone()
     if row:
         return row[0]
 
-    location_id = location_row.get("id") if location_row else None
-    latitude = location_row.get("latitude") if location_row else None
-    longitude = location_row.get("longitude") if location_row else None
+    location_id: Optional[int] = location_row.get("id") if location_row else None
+    latitude: Optional[float] = location_row.get("latitude") if location_row else None
+    longitude: Optional[float] = location_row.get("longitude") if location_row else None
 
     db_cursor.execute(
         """
         INSERT INTO posts
-        (raw_post_text, nlp_intent, nlp_score, date_scraped, status, location_id, latitude, longitude, scraper_init)
-        VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s, %s)
+        (raw_post_text, username, profile_link, date_scraped, status, location_id, latitude, longitude, nlp_intent, scraper_init)
+        VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (post, intent, score, status, location_id, latitude, longitude, scraper_init),
+        (
+            post,
+            username,
+            profile_link,
+            status,
+            location_id,
+            latitude,
+            longitude,
+            intent,
+            scraper_init,
+        ),
     )
 
-    post_id = db_cursor.fetchone()[0]
+    post_id: int = db_cursor.fetchone()[0]
     conn.commit()
     print(f"[DB] Inserted new post (id={post_id})")
     return post_id
 
 
 def update_post_operator(
-    post_id, post_text, status=None, condition=None, location_row=None, intent_word=None
-):
-    updates = []
-    params = []
+    post_id: int,
+    status: Optional[str] = None,
+    location_row: Optional[Dict[str, Any]] = None,
+) -> None:
+    """
+    Updates the post details (like location corrections or marking a post as reviewed).
+    NOTE: This no longer automatically creates or updates an incident.
+    """
+    updates: List[str] = []
+    params: List[Any] = []
 
     if status is not None:
         updates.append("status=%s")
         params.append(status)
 
-    if updates:
+    if location_row is not None:
         updates.append("location_id=%s")
         params.append(location_row["id"])
         updates.append("latitude=%s")
@@ -64,17 +98,12 @@ def update_post_operator(
         params.append(location_row["longitude"])
 
     if updates:
-        sql = f"UPDATE posts SET {', '.join(updates)} WHERE id=%s"
+        sql: str = f"UPDATE posts SET {', '.join(updates)} WHERE id=%s"
         params.append(post_id)
         try:
             db_cursor.execute(sql, tuple(params))
-            conn.commit()  # Save Post update
+            conn.commit()
+            print(f"[DB] Successfully updated post {post_id}")
         except Exception as e:
             conn.rollback()
             print(f"[Error] Failed to update post: {e}")
-
-    # Now update incident_reports accordingly
-    if status is not None or condition is not None:
-        update_incident_report(
-            post_id, post_text, status, condition, location_row, intent_word
-        )

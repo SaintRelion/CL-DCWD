@@ -1,3 +1,6 @@
+import re
+from typing import Any, Dict, List, Optional
+
 from playwright.async_api import async_playwright
 
 from database.db_posts import get_posts
@@ -49,9 +52,11 @@ class FBGroupScraper:
             except:
                 pass
 
-    async def scroll_and_collect(self, scrolls=12, step_fraction=0.6):
-        new_posts_this_round = []
-        hit_boundary = False
+    async def scroll_and_collect(
+        self, scrolls: int = 12, step_fraction: float = 0.6
+    ) -> List[Dict[str, str]]:
+        new_posts_this_round: List[Dict[str, str]] = []
+        hit_boundary: bool = False
 
         for _ in range(scrolls):
             # If we already connected to our known timeline, stop scrolling!
@@ -64,12 +69,33 @@ class FBGroupScraper:
             await self.page.wait_for_timeout(3000)
             await self.close_modals()
 
-            posts = await self.page.query_selector_all(
+            messages: List[Any] = await self.page.query_selector_all(
                 'div[data-ad-rendering-role="story_message"]'
             )
 
-            for post in posts:
-                text = (await post.inner_text()).strip()
+            for msg in messages:
+                # Extract text, name, and link in a single fast browser-side call
+                post_data: Dict[str, Optional[str]] = await msg.evaluate("""
+                    (element) => {
+                        let text = element.innerText.trim();
+                        let current = element.parentElement;
+                        let name = "Unknown";
+                        let link = null;
+
+                        while (current && current !== document.body) {
+                            let profileNode = current.querySelector('div[data-ad-rendering-role="profile_name"] [role="link"]');
+                            if (profileNode) {
+                                name = profileNode.innerText.trim();
+                                link = profileNode.getAttribute('href');
+                                break; // Found the author wrapper, stop climbing
+                            }
+                            current = current.parentElement;
+                        }
+                        return { text: text, name: name, link: link };
+                    }
+                """)
+
+                text: str = post_data.get("text", "") or ""
                 if not text:
                     continue
 
@@ -78,11 +104,30 @@ class FBGroupScraper:
                     break  # Stop processing this DOM snapshot immediately
                 else:
                     # Only add if it's new AND we haven't hit the boundary yet
-                    if text not in new_posts_this_round:
-                        new_posts_this_round.append(text)
+                    already_added: bool = any(
+                        p["text"] == text for p in new_posts_this_round
+                    )
 
-        for text in new_posts_this_round:
-            self.seen_posts.add(text)
+                    if not already_added:
+                        raw_link: Optional[str] = post_data.get("link")
+                        profile_link: str = "Unknown"
+
+                        if raw_link:
+                            match = re.search(r"/user/(\d+)", raw_link)
+                            if match:
+                                profile_link = f"https://www.facebook.com/profile.php?id={match.group(1)}"
+
+                        new_posts_this_round.append(
+                            {
+                                "text": text,
+                                "name": post_data.get("name", "Unknown") or "Unknown",
+                                "link": profile_link,
+                            }
+                        )
+
+        # Add to seen_posts tracking
+        for post_dict in new_posts_this_round:
+            self.seen_posts.add(post_dict["text"])
 
         new_posts_this_round.reverse()
         return new_posts_this_round

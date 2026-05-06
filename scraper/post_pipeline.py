@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Tuple, Dict, Any
 
 from ai.location_validator import LocationValidator
 from ai.chutes_nlp import ChutesNLP
@@ -9,32 +9,42 @@ nlp = ChutesNLP()
 lv = LocationValidator()
 
 
-def process_post(raw_posts: List[str], scraper_init: datetime):
+def process_post(raw_posts: List[Dict[str, str]], scraper_init: datetime) -> None:
+    """
+    Expects raw_posts to be a list of tuples: [(post_text, username, profile_link), ...]
+    """
     if not raw_posts:
         return
 
-    # one API call for the whole scroll
-    results = nlp.batch_extract_intent(raw_posts)
+    # Extract just the text for the NLP batch call
+    post_texts: List[str] = [item["text"] for item in raw_posts]
 
-    for result in results:
-        raw_text = result["post"]
-        intent = result["intent"]
+    # One API call for the whole scroll, returns List[Dict[str, str]] -> {"post": "...", "intent": "..."}
+    results = nlp.batch_extract_intent(post_texts)
 
-        barangay = lv.matchBarangay(raw_text)
-        street = lv.matchStreet(raw_text)
-        location_row = lv.get_row_from_matches(barangay, street)
+    for i, result in enumerate(results):
+        raw_text: str = result["post"]
+        intent: str = result["intent"]
 
+        # Retrieve corresponding metadata using index
+        username: str = raw_posts[i]["name"]
+        profile_link: str = raw_posts[i]["link"]
+
+        barangay: str = lv.matchBarangay(raw_text)
+        location_row: Dict[str, Any] = lv.get_row_from_matches(barangay)
+
+        # Map to the strict DB-friendly UI statuses
         if intent == "Unknown":
-            status = "Non-Incident"
-        elif not location_row.get("id"):
-            status = "Under Evaluation"
+            status = "non-incident"
         else:
-            status = "Under Evaluation"
+            status = "under evaluation"
 
+        # Insert updated payload (score/confidence removed)
         insert_post(
             post=raw_text,
+            username=username,
+            profile_link=profile_link,
             intent=intent,
-            score=1.0,  # no confidence rating, default 1
             status=status,
             location_row=location_row,
             scraper_init=scraper_init,

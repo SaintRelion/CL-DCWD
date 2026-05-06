@@ -6,6 +6,7 @@ import asyncio
 import threading
 from tkinter import ttk
 
+from ui.tabs.user_tab import UserTab
 from ui.utils import center_window
 from ui.tabs.map_tab import MapTab
 
@@ -54,6 +55,11 @@ class App:
         self.tabs = ttk.Notebook(root)
         self.tabs.pack(fill="both", expand=True)
 
+        # User Tab
+        if self.role == "manager":
+            self.user_tab = UserTab(self.tabs)
+            self.tabs.add(self.user_tab.frame, text="User Management")
+
         # Notifications Tab
         if role == "operator":
             self.notifications_tab = NotificationsTab(
@@ -61,19 +67,17 @@ class App:
             )
             self.tabs.add(self.notifications_tab.frame, text="Notifications")
 
-            threading.Thread(
-                target=start_agent, args=(self.notifications_tab.refresh,), daemon=True
-            ).start()
+            # threading.Thread(
+            #     target=start_agent, args=(self.notifications_tab.refresh,), daemon=True
+            # ).start()
 
         # Map Tab
-        if role in ["tubero", "manager"]:
-            self.map_tab = MapTab(self.tabs, self.email, self.role)
-            self.tabs.add(self.map_tab.frame, text="Map View")
+        self.map_tab = MapTab(self.tabs, self.email, self.role)
+        self.tabs.add(self.map_tab.frame, text="Map View")
 
         # Predictive Tab
-        if role in ["operator", "manager"]:
-            self.predict_tab = PredictiveTab(self.tabs, self.pm)
-            self.tabs.add(self.predict_tab.frame, text="Predictive Model")
+        self.predict_tab = PredictiveTab(self.tabs, self.pm)
+        self.tabs.add(self.predict_tab.frame, text="Predictive Model")
 
         self.tabs.bind("<<NotebookTabChanged>>", self.on_tab_change)
 

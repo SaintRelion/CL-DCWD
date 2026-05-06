@@ -1,11 +1,11 @@
 import smtplib
 from email.message import EmailMessage
 
-from database.db_users import get_all_tubero_emails
+from database.db_users import get_all_tubero_names
 
 
 def send_incident_email(incident_details):
-    recipients = get_all_tubero_emails()
+    recipients = get_all_tubero_names()
     if not recipients:
         print("[Email] No recipients found. Skipping.")
         return

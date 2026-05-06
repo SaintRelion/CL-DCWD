@@ -42,8 +42,12 @@ def username_exists(username):
     return db_cursor.fetchone() is not None
 
 
+def get_all_users():
+    db_cursor.execute("SELECT id, username, role FROM users ORDER BY id DESC")
+    return db_cursor.fetchall()
+
+
 # Non Auth
-def get_all_tubero_emails():
-    db_cursor.execute("SELECT email FROM users WHERE role = 'tubero'")
-    # Fetch all and flatten the list of tuples [(email1,), (email2,)] into [email1, email2]
+def get_all_tubero_names():
+    db_cursor.execute("SELECT username FROM users WHERE role = 'tubero'")
     return [row[0] for row in db_cursor.fetchall() if row[0]]

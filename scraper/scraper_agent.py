@@ -23,8 +23,14 @@ async def run_agent(on_new_posts=None):
 
             if new_posts:
                 print(f"[AGENT] Found {len(new_posts)} new posts")
-                for post in new_posts:
-                    print(post)
+
+                # Format the logging to show the new locked-together data
+                for idx, post in enumerate(new_posts, 1):
+                    print(f"--- New Post {idx} ---")
+                    print(f"Author: {post.get('name')}")
+                    print(f"Link:   {post.get('link')}")
+                    print(f"Text:   {post.get('text')}")
+                    print("-" * 30)
 
                 process_post(new_posts, scraper_init)
 
@@ -37,3 +43,6 @@ async def run_agent(on_new_posts=None):
 
     finally:
         await scraper.stop()
+
+
+# asyncio.run(run_agent())
